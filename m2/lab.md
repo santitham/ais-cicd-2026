@@ -1,436 +1,734 @@
 # Module 2 — Lab Guide
 
-> Two labs. A is YAML, solo, ~60 min. B is the Databricks CLI, solo, ~60 min.
+**YAML and the Databricks workspace**
+Day 1 · Foundations · 3 hours (105 min teaching, 15 min break, 60 min at your keyboard)
+
+Six challenges. Four on YAML, two on the Databricks CLI. Times are guides, not
+gates; each challenge ends with a **Going further** step if you finish early.
+
+Every command and every expected output in this guide has been executed. If your
+result differs, the cause is a version difference or a typo, not a mistake in
+the guide — tell your instructor either way.
+
+| Challenge | Topic | Time |
+|---|---|---|
+| 1 | Read a document you did not write | 6 min |
+| 2 | Predict the type | 7 min |
+| 3 | Break it, then read the message | 10 min |
+| 4 | Author a configuration from requirements | 12 min |
+| 5 | Configure and verify a CLI profile | 8 min |
+| 6 | Full job lifecycle from the terminal | 17 min |
 
 ---
 
-## Lab A — Write a workflow file by hand (60 min)
+## Pre-flight — tools
 
-**Goal:** author a GitHub Actions workflow from scratch, validate it locally, observe each YAML trap firsthand, and watch the workflow run.
-
-### A.1 Install yq (5 min)
-
-Pick the install for your OS:
+Run once, before Challenge 1. On Ubuntu:
 
 ```bash
-# macOS
-brew install yq
-
-# Linux (one-liner)
-sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && sudo chmod +x /usr/local/bin/yq
-
-# Windows
-winget install --id MikeFarah.yq
+bash assets/prep-ubuntu.sh
+cd ~/m2-demo
 ```
 
-Verify:
+That installs `yq`, `actionlint`, `yamllint`, `jq` and the Databricks CLI, and
+writes every fixture file this guide uses.
+
+Confirm:
 
 ```bash
 yq --version
+jq --version
+databricks --version
 ```
 
-**Expected output:**
+Expected — versions may be newer:
 
 ```
-yq (https://github.com/mikefarah/yq/) version v4.40.5
+yq (https://github.com/mikefarah/yq/) version v4.53.3
+jq-1.7.1
+Databricks CLI v0.230.0
 ```
 
-### A.2 Create the workflow file (15 min)
+> **Do not install yq with `apt`.** Ubuntu's package of that name is a Python
+> wrapper around `jq`. It reports `yq 0.0.0` and none of the commands below
+> work. If `yq --version` says `0.0.0`, remove it and re-run the prep script.
 
-In the repo from Module 1, create the directory and file:
+---
 
-```bash
-mkdir -p .github/workflows
-touch .github/workflows/lint.yml
-```
+# Part A — YAML
 
-Open the empty file in your editor. **Type — don't paste — the following.** Typing it by hand is the point of the lab.
+## Challenge 1 — Read a document you did not write (6 min)
+
+**Goal:** state the structure of a YAML file before running anything.
+
+### 1.1 Read it on paper first
+
+Open `fixtures/pipeline.yml`. Do not run any command yet.
 
 ```yaml
-name: lint
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install flake8
-        run: pip install flake8
-
-      - name: Run flake8
-        run: flake8 etl/ --max-line-length=100
+pipeline:
+  name: customer_features
+  enabled: true
+  owners:
+    - data-science
+    - data-engineering
+  settings:
+    retries: 3
+    timeout_minutes: 20
+tasks:
+  - name: prepare_data
+    notebook: notebooks/prepare
+    retries: 2
+  - name: train_model
+    notebook: notebooks/train
+    retries: 1
 ```
 
-### A.3 Validate locally (5 min)
+On paper, draw the tree. Mark every node as a **mapping**, a **sequence**, or a
+**scalar**. Then write down two numbers:
+
+- How many elements does `tasks` have?
+- How many keys does each element have?
+
+### 1.2 Now check
 
 ```bash
-yq . .github/workflows/lint.yml
+yq -o json . fixtures/pipeline.yml
 ```
 
-**Expected output (re-formatted YAML, no errors):**
+Expected:
 
-```yaml
-name: lint
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install flake8
-        run: pip install flake8
-      - name: Run flake8
-        run: flake8 etl/ --max-line-length=100
+```json
+{
+  "pipeline": {
+    "name": "customer_features",
+    "enabled": true,
+    "owners": [
+      "data-science",
+      "data-engineering"
+    ],
+    "settings": {
+      "retries": 3,
+      "timeout_minutes": 20
+    }
+  },
+  "tasks": [
+    {
+      "name": "prepare_data",
+      "notebook": "notebooks/prepare",
+      "retries": 2
+    },
+    {
+      "name": "train_model",
+      "notebook": "notebooks/train",
+      "retries": 1
+    }
+  ]
+}
 ```
 
-If you got an error message, fix it before continuing.
-
-Try it as JSON:
+Confirm your two numbers directly:
 
 ```bash
-yq -o json . .github/workflows/lint.yml
+yq '.tasks | length' fixtures/pipeline.yml
 ```
 
-**Expected output:** the same data as a JSON document. Useful for piping into other tools.
+```
+2
+```
 
-### A.4 Trap 1 — Tabs (10 min)
+<details>
+<summary>The answer, and the line that decides it</summary>
 
-Open the file. Find any indented line. Replace the leading spaces with a single tab character.
+Two top-level keys, `pipeline` and `tasks`, because both start in column 1.
+
+`owners` is a **sequence** because the lines below it begin with `- `. Remove
+those two markers and indent the values, and it becomes a mapping instead.
+
+`tasks` is a **sequence of mappings**: two elements, three keys each. The `- `
+and `name:` share a line, and `notebook:` and `retries:` line up with the `n` of
+`name`, which is what places them inside the same element.
+
+</details>
+
+**Going further:** write the whole document as a Python literal, then check it:
 
 ```bash
-yq . .github/workflows/lint.yml
+python3 -c "import yaml,pprint;pprint.pprint(yaml.safe_load(open('fixtures/pipeline.yml')))"
 ```
 
-**Expected output:**
+### Success check
+
+- [ ] Your drawing and the JSON have the same shape.
+- [ ] You can point at the line that makes `owners` a list.
+
+---
+
+## Challenge 2 — Predict the type (7 min)
+
+**Goal:** see that the parser, not the author, decides what a value is.
+
+### 2.1 Commit to an answer first
+
+Write down the resolved type of each of these nine values. A guess you did not
+write down does not count.
 
 ```
-Error: bad file '.github/workflows/lint.yml': yaml: line 12: found character that cannot start any token
+42        1.0        3.10        0755        true
+null      1e3        2026-08-16  "3.10"
 ```
 
-The line number points you exactly. Restore spaces. Re-run yq, confirm clean parse.
-
-### A.5 Trap 2 — Number that looks like a string (10 min)
-
-Change `python-version: "3.11"` to `python-version: 3.10` (no quotes).
+### 2.2 Check each one
 
 ```bash
-yq '.jobs.lint.steps[1].with["python-version"]' .github/workflows/lint.yml
+echo 'k: 3.10' > t.yml
+yq '.k | type' t.yml
+yq '.k' t.yml
 ```
 
-**Expected output:**
+Expected:
+
+```
+!!float
+3.10
+```
+
+Note that `yq '.k'` prints `3.10`, because it echoes the token from the source.
+The type is the only thing that reveals the problem. Force the arithmetic and
+the stored value appears:
+
+```bash
+yq '.k + 0' t.yml
+```
 
 ```
 3.1
 ```
 
-Wait — that's `3.1`, not `3.10`. YAML parsed `3.10` as a float, and `3.10` as a float is `3.1`.
+Now work through the rest.
+
+<details>
+<summary>All nine answers</summary>
+
+| Written | Type | Value |
+|---|---|---|
+| `42` | `!!int` | 42 |
+| `1.0` | `!!float` | 1.0 |
+| `3.10` | `!!float` | **3.1** — the trailing zero is not stored |
+| `0755` | `!!int` | **755** under yq |
+| `true` | `!!bool` | true |
+| `null` | `!!null` | null |
+| `1e3` | `!!float` | 1000 |
+| `2026-08-16` | `!!timestamp` | a date object |
+| `"3.10"` | `!!str` | the two characters, unchanged |
+
+The rule: an unquoted value is matched against a table of patterns and the
+first match decides. Quoting suppresses the matching entirely.
+
+</details>
+
+### 2.3 The same file, a different parser
+
+Two of those values are read differently by a YAML 1.1 parser:
 
 ```bash
-yq '.jobs.lint.steps[1].with["python-version"] | type' .github/workflows/lint.yml
+printf 'a: 0755\nb: 1e3\n' > o.yml
+yq -o json . o.yml
+python3 -c "import yaml;print(yaml.safe_load(open('o.yml')))"
 ```
 
-**Expected output:**
+Expected:
 
-```
-!!float
-```
-
-This is the worst kind of YAML bug: parses cleanly, runs wrong.
-
-Restore the quotes. Re-run:
-
-```bash
-yq '.jobs.lint.steps[1].with["python-version"] | type' .github/workflows/lint.yml
+```json
+{
+  "a": 0755,
+  "b": 1e3
+}
 ```
 
-**Expected output:**
-
 ```
-!!str
+{'a': 493, 'b': '1e3'}
 ```
 
-### A.6 Trap 3 — The Norway problem (5 min)
+`0755` is **755** to yq and **493** to PyYAML, which reads a leading zero as
+octal. `1e3` is the number **1000** to yq and the **string** `'1e3'` to PyYAML.
 
-Add a new step:
+The same characters, two numbers and two types, decided by which library opened
+the file.
 
-```yaml
-      - name: Check (no, really)
-        if: no
-        run: echo "this never runs"
-```
+### Success check
 
-```bash
-yq '.jobs.lint.steps[-1].if' .github/workflows/lint.yml
-```
-
-**Expected output:**
-
-```
-false
-```
-
-That `no` was interpreted as the boolean `false`. The step would never run.
-
-Quote it: `if: "no"`. Re-run:
-
-```bash
-yq '.jobs.lint.steps[-1].if' .github/workflows/lint.yml
-yq '.jobs.lint.steps[-1].if | type' .github/workflows/lint.yml
-```
-
-**Expected output:**
-
-```
-no
-!!str
-```
-
-Now it's the string `"no"`. (You'd still want to rename the variable — a string `"no"` is rarely what you mean either.) Delete this step.
-
-### A.7 Trap 4 — Off-by-one indent (5 min)
-
-Add one extra space before `cache: pip`:
-
-```yaml
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-           cache: pip
-```
-
-```bash
-yq '.jobs.lint.steps[1].with' .github/workflows/lint.yml
-```
-
-**Expected output:**
-
-```yaml
-python-version: "3.11 cache: pip"
-```
-
-The "cache: pip" got swallowed into the python-version string. Restore the correct indent.
-
-### A.8 Commit and watch CI (5 min)
-
-```bash
-git add .github/workflows/lint.yml
-git commit -m "ci: add flake8 lint workflow"
-git push
-```
-
-**Expected output:**
-
-```
-[main 7a2b3c4] ci: add flake8 lint workflow
- 1 file changed, 22 insertions(+)
- create mode 100644 .github/workflows/lint.yml
-...
-To https://github.com/<you>/<repo>.git
-   89f7e2b..7a2b3c4  main -> main
-```
-
-GitHub → **Actions** tab. You should see "lint" in the workflow list, with a run in progress. Click into it.
-
-**What you should see:**
-
-- One job, `lint`, queued or running.
-- After ~30 seconds, status `completed`. May be green (✓) or red (✗) depending on whether flake8 found issues in your starter code.
-
-If flake8 fails (likely — the starter file has style issues), open the failed step, read the lines flake8 cites, fix them, push again.
-
-### A.9 Success check
-
-- [ ] `yq` parses your `lint.yml` cleanly.
-- [ ] You triggered all four YAML traps and saw what each does.
-- [ ] The Actions tab shows a workflow run (green or red, your choice).
-- [ ] You can recite the four traps without looking at this guide.
+- [ ] You can state the rule that decides each of the nine, not only the answer.
+- [ ] You can name a value whose meaning depends on the parser rather than the file.
 
 ---
 
-## Lab B — Drive the workspace from the CLI (60 min)
+## Challenge 3 — Break it, then read the message (10 min)
 
-**Goal:** complete a full job lifecycle — upload code, create a job, run it, inspect it — without using the Databricks UI.
+**Goal:** recognise the four most common faults, and read what the parser says.
 
-### B.1 Install the CLI (5 min)
-
-```bash
-# macOS
-brew install databricks/tap/databricks
-
-# Linux
-curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-
-# Windows
-winget install Databricks.CLI
-```
+Work on a copy, and restore it before each step:
 
 ```bash
-databricks --version
+cp fixtures/pipeline.yml work.yml
 ```
 
-**Expected output:**
+### 3.1 A tab in the indentation
+
+Replace the leading spaces on the `name: customer_features` line with a single
+tab character, then:
+
+```bash
+yq . work.yml
+```
+
+Expected:
 
 ```
-Databricks CLI v0.230.0
+Error: bad file 'work.yml': yaml: while scanning for the next token at line 2: found character that cannot start any token
 ```
 
-(Anything ≥ 0.205 is fine.) If you see something like `databricks-cli, version 0.18.0`, that's the **legacy** CLI — uninstall it and use the modern one.
+Make the tab visible — this is the only reliable way to see one:
 
-### B.2 Configure a profile (10 min)
+```bash
+cat -A work.yml | sed -n '2p'
+```
+
+```
+^Iname: customer_features$
+```
+
+`^I` is the tab. Restore the file: `cp fixtures/pipeline.yml work.yml`
+
+### 3.2 A missing space after a colon
+
+Change `name: customer_features` to `name:customer_features`, then:
+
+```bash
+yq . work.yml
+```
+
+Expected:
+
+```
+Error: bad file 'work.yml': yaml: line 3, column 10: mapping values are not allowed in this context
+```
+
+The colon needs a space after it to separate a key from a value. Without one,
+the parser reads the whole thing as a plain scalar, and then fails when the next
+line tries to be a key. Restore the file.
+
+### 3.3 A misaligned sequence marker
+
+Add one extra space before the second element of `owners`:
+
+```yaml
+  owners:
+    - data-science
+     - data-engineering
+```
+
+```bash
+yq -o json '.pipeline.owners' work.yml
+```
+
+Expected — and note there is **no error**:
+
+```json
+[
+  "data-science - data-engineering"
+]
+```
+
+One element instead of two. The second `- ` was absorbed into the first value as
+ordinary text. Nothing reports this. Restore the file.
+
+### 3.4 A duplicate key
+
+Add a second `retries:` under `settings` with a different value:
+
+```yaml
+  settings:
+    retries: 3
+    timeout_minutes: 20
+    retries: 9
+```
+
+```bash
+yq -o json '.pipeline.settings' work.yml
+python3 -c "import yaml;print(yaml.safe_load(open('work.yml'))['pipeline']['settings'])"
+yamllint -c .yamllint.yml work.yml
+```
+
+Expected:
+
+```json
+{
+  "retries": 3,
+  "timeout_minutes": 20,
+  "retries": 9
+}
+```
+
+```
+{'retries': 9, 'timeout_minutes': 20}
+```
+
+```
+work.yml
+  10:5      error    duplication of key "retries" in mapping  (key-duplicates)
+```
+
+PyYAML silently keeps the last value and discards the first. `yq` emits both
+keys, which is not valid JSON. `yamllint` is the only one of the three that
+objects. Restore the file.
+
+<details>
+<summary>Which check catches which</summary>
+
+| Fault | `yq .` | `yq \| type` | `yamllint` |
+|---|---|---|---|
+| Tab | reports it | — | reports it |
+| Missing space after colon | reports it | — | reports it |
+| Misaligned `- ` | passes | passes | passes |
+| Duplicate key | passes | passes | **reports it** |
+| `3.10` unquoted | passes | **reports it** | passes |
+
+The first two stop you immediately. The last three do not, which is why a check
+is worth running rather than trusting a careful read.
+
+</details>
+
+**Going further:** run `./validate.sh` against each of the five `lint-*.yml`
+fixtures and record which level rejected each one. One of them passes every
+check and is still wrong. Find it.
+
+### Success check
+
+- [ ] For each fault you can state the symptom and predict which check catches it.
+- [ ] You can name a fault that no check in this module reports.
+
+---
+
+## Challenge 4 — Author a configuration from requirements (12 min)
+
+**Goal:** write a document from a specification, not from a template.
+
+### 4.1 The starting point
+
+```bash
+cp fixtures/skeleton.yml myconfig.yml
+cat myconfig.yml
+```
+
+```yaml
+project:
+  name:
+  owner:
+environments:
+tasks:
+```
+
+### 4.2 The requirements
+
+Produce a document containing all of the following:
+
+1. A project name and owner.
+2. `development` and `production` environments, each with a different worker count.
+3. At least two tasks, each with a name, an entrypoint and a retry count.
+4. A boolean controlling whether notifications are enabled.
+5. A multi-line description, with the line breaks preserved.
+6. A list of at least two tags.
+7. A `version` field whose exact text must survive parsing.
+
+Requirements 5 and 7 each have one correct construct. Decide which before you
+type.
+
+### 4.3 Validate it
+
+```bash
+yq -o json . myconfig.yml
+```
+
+Check three things in the output rather than in your file:
+
+- `environments` is a mapping, not a list.
+- `tasks` is a list, and it has the number of elements you intended.
+- `version` is a string. Confirm it: `yq '.version | type' myconfig.yml`
+
+### 4.4 Swap
+
+Exchange files with your neighbour. Read their document aloud as a structure —
+*"a mapping called project, containing two scalars"* — before they tell you what
+they meant. Where you read it differently from how they wrote it, work out which
+line is responsible.
+
+<details>
+<summary>One correct answer</summary>
+
+```yaml
+project:
+  name: customer-churn
+  owner: data-science
+  version: "1.0"
+
+environments:
+  development:
+    workers: 1
+  production:
+    workers: 4
+
+tasks:
+  - name: prepare_features
+    entrypoint: notebooks/prepare_features
+    retries: 2
+  - name: train_model
+    entrypoint: notebooks/train_model
+    retries: 1
+
+notifications:
+  enabled: true
+
+description: |
+  Prepare customer features and train
+  the production churn model.
+
+tags:
+  - machine-learning
+  - customer-analytics
+```
+
+`environments` is a mapping because the names matter and you refer to them by
+name. `tasks` is a sequence because the elements are alike and nothing refers to
+one by name.
+
+`version` is quoted, or `1.0` becomes the number 1 and the text is lost.
+
+`description` uses `|`, which preserves the line breaks. `>` would fold them
+into spaces.
+
+</details>
+
+### Success check
+
+- [ ] `yq -o json` shows the tree you intended.
+- [ ] Your neighbour read your structure the same way you wrote it.
+- [ ] `yq '.version | type'` returns `!!str`.
+
+---
+
+# Part B — The workspace and the CLI
+
+## Challenge 5 — Configure and verify a profile (8 min)
+
+**Goal:** get a working CLI profile, and recognise what a broken one looks like.
+
+### 5.1 Generate a token
+
+In the Databricks UI: your avatar → **Settings** → **Developer** →
+**Access tokens** → **Generate new token**.
+
+Set a short lifetime — 7 days is enough for this course. Copy the token now; it
+is shown once.
+
+> A personal access token is a bearer credential. Anyone holding it acts as you.
+> Do not commit it, paste it into a notebook, or send it in a chat message.
+> Module 7 replaces it with a service principal.
+
+### 5.2 Configure
 
 ```bash
 databricks configure --host https://<your-workspace> --profile dev
 ```
 
-When prompted, paste a Personal Access Token (generate from **User Settings → Developer → Access tokens**).
+Paste the token when prompted.
 
 ```bash
 cat ~/.databrickscfg
 ```
 
-**Expected output:**
+Expected:
 
 ```
 [dev]
-host  = https://<your-workspace>
-token = dapixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+host  = https://adb-1502583690645883.3.azuredatabricks.net
+token = dapi********************************
 ```
 
-Verify:
+The file is in your home directory, outside any repository. That, rather than
+`.gitignore`, is what keeps the token out of a commit.
+
+### 5.3 Verify before doing anything else
 
 ```bash
-databricks current-user me --profile dev | jq .userName
+databricks current-user me --profile dev | jq -r .userName
 ```
 
-**Expected output:**
+Expected:
 
 ```
-"jane.quinn@example.com"
+santitham.pro@kmutt.ac.th
 ```
 
-### B.3 Upload code to the workspace (10 min)
+This one command confirms three things: the configuration file parsed, the host
+is reachable, and the credential was accepted.
+
+### 5.4 Break it deliberately
+
+Edit `~/.databrickscfg` and change the host to something wrong, then re-run the
+command above. Read the error. Restore the correct host.
+
+<details>
+<summary>Three failures worth recognising</summary>
+
+| Message | Cause |
+|---|---|
+| `cannot configure default credentials` | No profile selected — add `--profile dev` |
+| `403 Forbidden` | Token expired, revoked, or lacking access |
+| `dial tcp: lookup ...: no such host` | Host wrong or mistyped |
+
+Running `current-user me` first turns any of these into one clear failure at a
+point where you know what you just changed.
+
+</details>
+
+### Success check
+
+- [ ] `current-user me` returns your username.
+- [ ] You recognise the error a wrong host produces.
+
+---
+
+## Challenge 6 — Full job lifecycle from the terminal (17 min)
+
+**Goal:** upload code, create a job, run it, poll it, and read its result,
+without opening the workspace UI.
+
+Set these once. They live only in the current shell — open a new terminal and
+you must set them again.
 
 ```bash
-WORKSPACE_PATH="/Workspace/Shared/cicd-course/$(whoami)"
-databricks workspace mkdirs "$WORKSPACE_PATH" --profile dev
+PROFILE=dev
+WS="/Users/<your-email>"                 # your workspace user folder, no trailing slash
+CLUSTER_NAME="Training_Cluster"
 ```
 
-**Expected output:** no output. (Silence = success.)
+### 6.1 The notebook
+
+```bash
+cat > hello_world.py <<'EOF'
+import sys, datetime
+
+msg = (f"Hello, world! at {datetime.datetime.now(datetime.timezone.utc).isoformat()} "
+       f"| Python {sys.version.split()[0]}")
+print(msg)
+dbutils.notebook.exit(msg)
+EOF
+```
+
+`dbutils.notebook.exit()` is required. Without it the notebook runs correctly
+and the API returns nothing — `print()` output goes to the notebook's cell
+output, which is only visible in the browser.
+
+### 6.2 Upload
 
 ```bash
 databricks workspace import \
-  --file assets/hello_world.py \
+  --file hello_world.py \
   --format SOURCE --language PYTHON \
-  --profile dev \
-  "$WORKSPACE_PATH/hello_world"
+  --overwrite \
+  --profile $PROFILE \
+  "$WS/hello_world"
+
+databricks workspace list "$WS" --profile $PROFILE | grep hello_world
 ```
 
-**Expected output:** no output, exit code 0.
-
-Confirm it landed:
-
-```bash
-databricks workspace list "$WORKSPACE_PATH" --profile dev
-```
-
-**Expected output:**
+Expected:
 
 ```
 hello_world
 ```
 
-Or, with `--output json`:
+> If you see `Error: Path () doesn't start with '/'`, the variable `$WS` is
+> empty. The empty parentheses in the message are the evidence. Set it and
+> re-run.
+
+### 6.3 Find the cluster
 
 ```bash
-databricks workspace list "$WORKSPACE_PATH" --profile dev --output json | jq
+CLUSTER_ID=$(databricks clusters list --profile $PROFILE -o json \
+  | jq -r ".[] | select(.cluster_name==\"$CLUSTER_NAME\") | .cluster_id")
+echo "cluster: $CLUSTER_ID"
 ```
 
-**Expected output:**
+Expected:
 
-```json
-[
-  {
-    "object_type": "NOTEBOOK",
-    "path": "/Workspace/Shared/cicd-course/jane/hello_world",
-    "language": "PYTHON",
-    "object_id": 4729183746,
-    "modified_at": 1716840000000
-  }
-]
+```
+cluster: 0318-031919-b3fa4xtr
 ```
 
-### B.4 Create a job (UI for now) (10 min)
-
-In the Databricks UI: **Workflows → Create Job**.
-
-- **Job name:** `hello-world-<yourname>`
-- **Task name:** `say-hello`
-- **Type:** Python file
-- **Path:** `$WORKSPACE_PATH/hello_world.py` (use the absolute path, replacing variables)
-- **Cluster:** create a new tiny one (1 worker, smallest node type, latest runtime)
-
-Click **Create**. The job appears. **Copy the Job ID** from the URL (`/jobs/<id>`).
-
-> We're using the UI here on purpose. Tomorrow you'll replace this entire flow with a single `databricks bundle deploy`.
-
-### B.5 Trigger from the CLI (15 min)
+Empty means the name does not match. List them and check:
 
 ```bash
-JOB_ID=<your-job-id>
-RUN_ID=$(databricks jobs run-now --job-id $JOB_ID --profile dev | jq -r .run_id)
-echo "Run started: $RUN_ID"
+databricks clusters list --profile $PROFILE -o json | jq -r '.[].cluster_name'
 ```
 
-**Expected output:**
-
-```
-Run started: 5829374
-```
-
-Poll the state:
+### 6.4 Create the job
 
 ```bash
-databricks jobs get-run --run-id "$RUN_ID" --profile dev | jq .state
+JOB_ID=$(databricks jobs create --profile $PROFILE -o json --json "{
+  \"name\": \"hello-world-$(whoami)\",
+  \"tasks\": [{
+    \"task_key\": \"say-hello\",
+    \"existing_cluster_id\": \"$CLUSTER_ID\",
+    \"notebook_task\": { \"notebook_path\": \"$WS/hello_world\" }
+  }]
+}" | jq -r .job_id)
+echo "job: $JOB_ID"
 ```
 
-**Expected output (first call, while running):**
+Expected:
+
+```
+job: 752310395422527
+```
+
+The task is a `notebook_task`, because `workspace import --format SOURCE
+--language PYTHON` creates a notebook. A `spark_python_task` would not find it.
+
+### 6.5 Run it
+
+```bash
+RUN_ID=$(databricks jobs run-now "$JOB_ID" --no-wait --profile $PROFILE -o json \
+         | jq -r .run_id)
+echo "run: $RUN_ID"
+```
+
+Expected:
+
+```
+run: 320453046596912
+```
+
+`--no-wait` matters. Without it the command blocks until the run finishes —
+default timeout twenty minutes — and the next step has nothing left to poll.
+
+### 6.6 Poll
+
+```bash
+databricks jobs get-run "$RUN_ID" --profile $PROFILE -o json | jq .state
+```
+
+While running:
 
 ```json
 {
   "life_cycle_state": "RUNNING",
-  "state_message": "In run",
-  "user_cancelled_or_timedout": false
+  "state_message": "In run"
 }
 ```
 
-Wait 60 seconds (cluster start-up). Poll again:
-
-**Expected output (after completion):**
+After it finishes:
 
 ```json
 {
@@ -441,48 +739,138 @@ Wait 60 seconds (cluster start-up). Poll again:
 }
 ```
 
-Extract just the result:
+Or wait for it:
 
 ```bash
-databricks jobs get-run --run-id "$RUN_ID" --profile dev \
-  | jq -r '.state.result_state'
+while true; do
+  STATE=$(databricks jobs get-run "$RUN_ID" --profile $PROFILE -o json \
+          | jq -r .state.life_cycle_state)
+  echo "$STATE"
+  [ "$STATE" = "TERMINATED" ] && break
+  sleep 10
+done
 ```
 
-**Expected output:**
+### 6.7 The single field that matters
+
+```bash
+databricks jobs get-run "$RUN_ID" --profile $PROFILE -o json \
+  | jq -r '.state.result_state'
+```
 
 ```
 SUCCESS
 ```
 
-This `jq` filter is exactly what Day 4's smoke-test step in CI runs.
+Remember this line. It is the smoke test in Module 8: one command, one word of
+output, which a pipeline can act on.
 
-### B.6 Read the log output (10 min)
+### 6.8 The output
 
 ```bash
-databricks jobs get-run-output --run-id "$RUN_ID" --profile dev | jq -r .logs
+TASK_RUN_ID=$(databricks jobs get-run "$RUN_ID" --profile $PROFILE -o json \
+              | jq -r '.tasks[0].run_id')
+
+databricks jobs get-run-output "$TASK_RUN_ID" --profile $PROFILE -o json \
+  | jq -r '.notebook_output.result'
 ```
 
-**Expected output:** lines like
+Expected:
 
 ```
-Hello, world! at 2026-05-17T14:30:42.123456+00:00
-Python version: 3.11.5 (main, ...) [GCC 9.4.0]
+Hello, world! at 2026-08-16T04:46:48.235000+00:00 | Python 3.11.11
 ```
 
-### B.7 Success check
+Note the **task** run id, not the job run id. `get-run-output` operates on a
+task; the two ids differ. Passing the job run id returns
+`"notebook_output": {}`.
 
-- [ ] You configured a profile, uploaded a file, created a job, triggered it, polled, and read its output — all from your terminal.
-- [ ] You used `jq` at least three times to extract specific fields.
-- [ ] You can name the three Databricks compute types and explain which is appropriate for a CI workflow.
+### 6.9 Two fields worth knowing
+
+```bash
+databricks jobs get-run "$RUN_ID" --profile $PROFILE -o json | jq -r '.run_page_url'
+
+databricks jobs get-run "$RUN_ID" --profile $PROFILE -o json \
+  | jq -r '"setup: \(.setup_duration/1000)s   execution: \(.execution_duration/1000)s"'
+```
+
+Example:
+
+```
+https://adb-1502583690645883.3.azuredatabricks.net/?o=.../run/899390193047849
+setup: 321s   execution: 21s
+```
+
+`run_page_url` is what to print in CI when something fails, so whoever reads the
+log can go straight to the run.
+
+The two durations are the argument for the compute-types discussion in one line:
+this run spent 321 seconds acquiring a machine and 21 seconds doing the work.
+
+### Success check
+
+- [ ] You obtained `SUCCESS` from a command, not from the UI.
+- [ ] You used `jq` to extract at least three separate fields.
+- [ ] You can say which of the six steps Module 3 replaces with `databricks bundle deploy`.
 
 ---
 
-## Common errors and recoveries
+## Common errors
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Error: cannot configure default credentials` | No profile set, or wrong profile name | Add `--profile <name>` or `export DATABRICKS_CONFIG_PROFILE=<name>` |
-| `403 Forbidden` from any CLI command | Token expired or scope insufficient | Re-generate a PAT; check the user has workspace access |
-| `yq: command not found` after install | Shell hasn't reloaded PATH | Open a new terminal or `source ~/.zshrc` |
-| YAML "looks right" but workflow doesn't trigger | Indentation off-by-one or wrong filename | File must be in `.github/workflows/`, must end in `.yml` or `.yaml`, lowercase |
-| `jq: error: 'X' is not defined` | Trying to query an invalid path | Pipe through `jq .` first to see the structure |
+| `yq 0.0.0`, unknown commands | apt's `yq`, a `jq` wrapper | Remove it; install the Go binary |
+| `Path () doesn't start with '/'` | `$WS` unset in this shell | Set it; note the empty `()` in the message |
+| `unknown flag: --job-id` | Modern CLI takes the id positionally | `databricks jobs run-now "$JOB_ID"` |
+| `run-now` returns only when finished | It blocks by default | Add `--no-wait` |
+| `"notebook_output": {}` | Job run id used, or no `dbutils.notebook.exit()` | Use the task run id; add the exit call |
+| `jq: Cannot index array with string` | The response is a bare array | Use `.[]`, not `.field[]` |
+| `cannot configure default credentials` | No profile selected | Add `--profile dev` |
+| `403 Forbidden` | Token expired or insufficient | Generate a new token |
+| YAML "looks right" but behaves wrongly | A value resolved to a type you did not intend | `yq '<path> \| type'` |
+
+---
+
+## Quick reference
+
+```bash
+# --- reading YAML ---------------------------------------------------------
+yq . file.yml                     # does it parse?
+yq -o json . file.yml             # what does the tool receive?
+yq '.a.b[0].c' file.yml           # one value
+yq '.a.b | type' file.yml         # !!str  !!int  !!float  !!bool  !!null
+yq '.list | length' file.yml      # how many elements
+cat -A file.yml                   # make tabs visible as ^I
+
+# --- checking it ----------------------------------------------------------
+yamllint -c .yamllint.yml file.yml    # duplicate keys, truthy values
+actionlint file.yml                    # workflow schema (explicit path)
+./validate.sh file.yml                 # all three, stopping at the first failure
+
+# --- the CLI --------------------------------------------------------------
+databricks current-user me --profile dev | jq -r .userName
+databricks workspace import --file f.py --format SOURCE --language PYTHON \
+    --overwrite --profile dev "$WS/name"
+databricks workspace list "$WS" --profile dev
+databricks clusters list --profile dev -o json | jq -r '.[].cluster_name'
+databricks jobs create --profile dev -o json --json '{...}' | jq -r .job_id
+databricks jobs run-now "$JOB_ID" --no-wait --profile dev -o json | jq -r .run_id
+databricks jobs get-run "$RUN_ID" --profile dev -o json | jq -r '.state.result_state'
+databricks jobs get-run-output "$TASK_RUN_ID" --profile dev -o json \
+    | jq -r '.notebook_output.result'
+```
+
+Ids are positional in the modern CLI. `--profile` and `-o json` work on every
+command.
+
+---
+
+## Before Module 3
+
+- [ ] You can read a nested YAML document and state its structure without running it.
+- [ ] You quote versions, identifiers, dates and country codes by reflex.
+- [ ] You know which of `|` and `>` to use for a multi-line command, and why.
+- [ ] You can name the three layers of correctness and the tool that checks each.
+- [ ] `yq --version` reports v4, not 0.0.0.
+- [ ] `databricks current-user me --profile dev` returns your username.
+- [ ] You have run a job and read its result state without opening the UI.
