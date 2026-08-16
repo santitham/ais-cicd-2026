@@ -1,0 +1,12 @@
+literal: |
+  line one
+  line two
+folded: >
+  line one
+  line two
+literal_strip: |-
+  line one
+  line two
+plain_multiline: line one
+  line two
+quoted: "has: a colon"

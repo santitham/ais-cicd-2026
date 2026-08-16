@@ -1,0 +1,16 @@
+pipeline:
+  name: customer_features
+  enabled: true
+  owners:
+    - data-science
+    - data-engineering
+  settings:
+    retries: 3
+    timeout_minutes: 20
+tasks:
+  - name: prepare_data
+    notebook: notebooks/prepare
+    retries: 2
+  - name: train_model
+    notebook: notebooks/train
+    retries: 1

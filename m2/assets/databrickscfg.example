@@ -1,0 +1,23 @@
+# ~/.databrickscfg — example showing the dev/staging/prod profile layout
+# we'll target from Day 2 onward. Do NOT commit this file to a repo.
+#
+# Sections are named by [profile]. Pass --profile <name> to the CLI
+# or set DATABRICKS_CONFIG_PROFILE=<name> in the environment.
+
+[DEFAULT]
+host  = https://my-workspace-dev.azuredatabricks.net
+token = dapixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+[dev]
+host  = https://my-workspace-dev.azuredatabricks.net
+token = dapixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+[staging]
+host  = https://my-workspace-staging.azuredatabricks.net
+token = dapiyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+
+[prod]
+host                 = https://my-workspace-prod.azuredatabricks.net
+auth_type            = oauth-m2m                      # service principal (Module 7)
+client_id            = 00000000-0000-0000-0000-000000000000
+client_secret        = dose-of-secret-redacted        # injected from a secret manager in CI

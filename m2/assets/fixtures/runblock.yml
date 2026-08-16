@@ -1,0 +1,10 @@
+steps:
+  - name: literal
+    run: |
+      pip install flake8
+      flake8 etl/ --max-line-length=100
+
+  - name: folded
+    run: >
+      pip install flake8
+      flake8 etl/ --max-line-length=100
