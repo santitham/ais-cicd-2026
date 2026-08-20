@@ -1,0 +1,27 @@
+# Deployment order for the course project.
+#
+# This file exists to create a specific kind of merge conflict: two people
+# changing the SAME LINE in different ways. Your instructor will nominate two
+# participants and give each of them a different change to make.
+#
+# Everyone else: leave this file alone until told otherwise.
+
+project: dataops-course
+owner: platform-team
+
+# The order environments are promoted through.
+promotion:
+  - dev
+  - staging
+  - prod
+
+# Which target a plain `deploy` command uses when nobody says otherwise.
+# NOMINATED PAIR: you will each be asked to change this single line.
+default_target: dev
+
+# How long to wait for a human approval before giving up.
+approval_timeout_minutes: 60
+
+# Who gets notified when a production deployment finishes.
+notify:
+  - platform-team
