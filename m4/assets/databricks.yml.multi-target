@@ -1,0 +1,151 @@
+# Module 4 reference — one bundle, three targets, annotated.
+#
+# This file is the end state of Challenges 3 and 4. Read it after you have written
+# your own; it is a reference, not a starting point. Every construct in it is taught
+# in the deck, and the slide number is given where it is.
+#
+# The rule the whole file obeys: resources/*.yml declares WHAT is deployed, and the
+# targets below declare WHERE and HOW BIG. Nothing about the task graph appears in a
+# target block.
+
+bundle:
+  name: m4demo_jq                 # appears in every derived workspace path (M3, S15)
+
+include:
+  - resources/*.yml               # merged before anything else happens (M3, S22)
+
+# ---------------------------------------------------------------- variables ---
+# Declared once, assigned per target. Precedence, lowest to highest (S48):
+#   1 default:  2 target's variables:  3 variable-overrides.json
+#   4 BUNDLE_VAR_<name>  5 --var name=value
+variables:
+  catalog:
+    description: The catalog every task writes into
+
+  schema:
+    description: The schema every task writes into
+
+  # A complex variable holds an entire mapping, and an assignment REPLACES it
+  # rather than merging into it (S49, S50). Use this form when the whole cluster
+  # specification differs between targets.
+  features_cluster:
+    description: The cluster the features task runs on
+    type: complex
+    default:
+      spark_version: 16.4.x-scala2.12
+      node_type_id: Standard_D3_v2
+      data_security_mode: DATA_SECURITY_MODE_AUTO
+      num_workers: 2
+
+# ------------------------------------------------------------------ targets ---
+targets:
+
+  # -- dev ---------------------------------------------------------------------
+  # mode: development computes presets rather than enforcing constraints (M3, S27):
+  # a [dev <short name>] prefix on every resource name, a dev tag, paused
+  # triggers, and max_concurrent_runs of 4.
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: training
+      schema: ${workspace.current_user.short_name}
+      # features_cluster is not assigned here, so the default above applies.
+
+  # -- staging -----------------------------------------------------------------
+  # mode: production computes no presets and enforces constraints instead
+  # (M3, S28), which is why root_path and permissions are stated explicitly.
+  staging:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: training
+      schema: staging
+      # Whole-value replacement. Note there is no autoscale here and none is
+      # inherited from the default; the resolved cluster has num_workers only.
+      features_cluster:
+        spark_version: 16.4.x-scala2.12
+        node_type_id: Standard_D3_v2
+        data_security_mode: DATA_SECURITY_MODE_AUTO
+        num_workers: 4
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+
+    # A resource override MERGES field by field into the base declaration (S44).
+    # The entries of job_clusters are matched on job_cluster_key, and the entries
+    # of tasks on task_key. A key that matches nothing is APPENDED, silently, so
+    # a misspelling here produces a second cluster that no task claims (S46, S47).
+    # Check with:
+    #   databricks bundle validate -t staging -o json \
+    #     | jq -r '.resources.jobs.ingest.job_clusters[].job_cluster_key'
+    resources:
+      jobs:
+        ingest:
+          job_clusters:
+            - job_cluster_key: main       # merges: keeps runtime and node type
+              new_cluster:
+                autoscale:
+                  min_workers: 2
+                  max_workers: 6
+
+  # -- prod --------------------------------------------------------------------
+  # Not deployed in this course. It is here so that the shape of a promotion
+  # target is visible, and so that bundle validate -t prod can be read.
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: production
+      schema: sales
+      features_cluster:
+        spark_version: 16.4.x-scala2.12
+        node_type_id: Standard_D3_v2
+        data_security_mode: DATA_SECURITY_MODE_AUTO
+        num_workers: 8
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+    resources:
+      jobs:
+        ingest:
+          job_clusters:
+            - job_cluster_key: main
+              new_cluster:
+                autoscale:
+                  min_workers: 4
+                  max_workers: 12
+          # A schedule belongs in the target, not the base: dev must not fire it.
+          # mode: production leaves it UNPAUSED; mode: development would pause it.
+          trigger:
+            periodic:
+              interval: 1
+              unit: DAYS
+
+# ------------------------------------------------ resolved, for all three ---
+# Executed against Databricks CLI v1.12.1. This is what the file above produces,
+# with resources/ingest.job.yml from challenge3-solution/ and the features cluster
+# wired to the complex variable:
+#
+#   $ databricks bundle validate -t <target> -o json | jq ...
+#
+#   target    job name                        main cluster        features    trigger
+#   -------   -----------------------------   -----------------   ---------   -----------------
+#   dev       [dev <short>] sales_ingest      autoscale 1-3       2 workers   none
+#   staging   sales_ingest                    autoscale 2-6       4 workers   none
+#   prod      sales_ingest                    autoscale 4-12      8 workers   daily, UNPAUSED
+#
+# All three resolve three job clusters — main, features, quality — which is the
+# check from Challenge 4.3. A fourth would mean an override key that matched
+# nothing and was appended.
+#
+# Note what each column demonstrates:
+#   job name        mode: development prefixes; mode: production does not
+#   main cluster    a targets.resources MERGE: min and max change, the runtime
+#                   and node type are inherited from resources/ingest.job.yml
+#   features        a complex variable REPLACEMENT: dev takes the declaration's
+#                   default, staging and prod each supply a whole specification
+#   trigger         declared only in prod, and left UNPAUSED because prod is in
+#                   production mode; the same trigger under dev would be PAUSED

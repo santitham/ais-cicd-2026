@@ -1,0 +1,139 @@
+# m4demo — the end state of Module 4, ready to deploy.
+#
+# One job, five tasks, three job clusters, three targets. Classic compute only:
+# every task runs on a job cluster this bundle declares. There is no Python
+# wheel, so uv is not required, and no pipeline, so a writable Unity Catalog
+# catalog is not required either.
+#
+# The workspace host is deliberately absent. The CLI takes it from your profile
+# or from DATABRICKS_HOST, and interpolation is not permitted on that field:
+#
+#   Error: Interpolation is not supported for the field workspace.host. Please
+#   set the DATABRICKS_HOST environment variable if you wish to configure this
+#   field at runtime.
+#
+# Validated with Databricks CLI v1.12.1 for all three targets.
+
+bundle:
+  name: m4demo
+
+include:
+  - resources/*.yml
+
+# ---------------------------------------------------------------- variables ---
+# Five sources of a value, lowest precedence first (S48):
+#   1 default:  2 the target's variables: block
+#   3 .databricks/bundle/<target>/variable-overrides.json
+#   4 BUNDLE_VAR_<name>  5 --var name=value
+# Note the environment variable prefix: BUNDLE_VAR_, not DATABRICKS_BUNDLE_VAR_.
+variables:
+
+  catalog:
+    description: The catalog the tasks are told to write into
+    default: main
+
+  schema:
+    description: The schema the tasks are told to write into
+    default: default
+
+  # A complex variable holds an entire mapping, and a target assignment
+  # REPLACES it rather than merging into it (S49, S50). Compare with the
+  # targets.<t>.resources override further down, which merges.
+  features_cluster:
+    description: The cluster the features task runs on
+    type: complex
+    default:
+      spark_version: 16.4.x-scala2.12
+      node_type_id: Standard_D3_v2
+      data_security_mode: DATA_SECURITY_MODE_AUTO
+      num_workers: 2
+
+# ------------------------------------------------------------------ targets ---
+targets:
+
+  # -- dev ---------------------------------------------------------------------
+  # mode: development computes presets rather than enforcing constraints:
+  # a [dev <short name>] name prefix, a dev tag, paused triggers, and
+  # max_concurrent_runs of 4. Read them with:
+  #   databricks bundle validate -o json | jq '.presets'
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: main
+      schema: ${workspace.current_user.short_name}
+      # features_cluster is not assigned here, so the default above applies:
+      # num_workers 2.
+
+  # -- staging -----------------------------------------------------------------
+  # mode: production computes no presets and enforces constraints instead,
+  # which is why root_path and permissions are stated explicitly.
+  staging:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: staging
+      # Whole-value replacement. There is no autoscale here and none is
+      # inherited from the default, so the resolved cluster has num_workers only.
+      features_cluster:
+        spark_version: 16.4.x-scala2.12
+        node_type_id: Standard_D3_v2
+        data_security_mode: DATA_SECURITY_MODE_AUTO
+        num_workers: 4
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+
+    # A resource override MERGES field by field into the base declaration (S44).
+    # Entries of job_clusters are matched on job_cluster_key and entries of
+    # tasks on task_key. A key matching nothing is APPENDED, silently, so a
+    # misspelling here produces a second cluster no task claims (S46, S47).
+    # The check is to count them:
+    #   databricks bundle validate -t staging -o json \
+    #     | jq -r '.resources.jobs.ingest.job_clusters[].job_cluster_key'
+    # Three entries is correct. Four means a typo above.
+    resources:
+      jobs:
+        ingest:
+          job_clusters:
+            - job_cluster_key: main      # merges: runtime and node type survive
+              new_cluster:
+                autoscale:
+                  min_workers: 2
+                  max_workers: 6
+
+  # -- prod --------------------------------------------------------------------
+  # Not deployed in this course. It is here so that the shape of a promotion
+  # target is visible and so that bundle validate -t prod can be read.
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: prod
+      features_cluster:
+        spark_version: 16.4.x-scala2.12
+        node_type_id: Standard_D3_v2
+        data_security_mode: DATA_SECURITY_MODE_AUTO
+        num_workers: 8
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+    resources:
+      jobs:
+        ingest:
+          job_clusters:
+            - job_cluster_key: main
+              new_cluster:
+                autoscale:
+                  min_workers: 4
+                  max_workers: 12
+          # A schedule belongs in the target, not the base: dev must not fire it.
+          # production mode leaves it UNPAUSED; development mode would pause it.
+          trigger:
+            periodic:
+              interval: 1
+              unit: DAYS

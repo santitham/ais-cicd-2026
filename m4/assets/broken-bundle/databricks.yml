@@ -1,0 +1,43 @@
+# Module 4, Challenge 6 — sabotaged bundle.
+# Four faults. One is reported by validate as a warning, one by validate as an
+# error, one only when deploy reaches the resource stage, and one only when the
+# job runs. Work the stages in order.
+bundle:
+  name: m4broken
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: The catalog the tasks write to
+  schema:
+    description: The schema the tasks write to
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: training
+      schema: ${workspace.current_user.short_name}
+
+  staging:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: training
+      schema: staging
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+    resources:
+      jobs:
+        sales_etl:
+          job_clusters:
+            - job_cluster_key: main
+              new_cluster:
+                autoscale:
+                  min_workers: 2
+                  max_workers: 6

@@ -1,0 +1,73 @@
+# The job Module 4 builds up, in its final form.
+#
+# Five tasks, one fan-out and one fan-in. Every task claims ONE existing
+# all-purpose cluster by id, because this workspace does not permit the
+# credential to create clusters. Tasks sharing one all-purpose cluster still run
+# concurrently, so features and quality remain genuinely parallel and the graph
+# Part D teaches is observable in the run history.
+#
+# Slide references are given so that a construct on a slide can be found here and
+# the reverse. Three slides describe job_clusters, which this file does not
+# declare — S20, S21 and S22 — and are taught by reading
+# resources/ingest.job.yml.jobclusters instead. See COMPUTE.md.
+
+resources:
+  jobs:
+    ingest:
+      name: sales_ingest
+      max_concurrent_runs: 1
+      timeout_seconds: 0
+
+      # No job_clusters block at all. Declaring one and not claiming it would
+      # still make the job try to create it.
+
+      tasks:
+
+        - task_key: land
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ../src/land.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: features
+          depends_on:
+            - task_key: land
+          existing_cluster_id: ${var.cluster_id}
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          notebook_task:
+            notebook_path: ../src/features.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: quality
+          depends_on:
+            - task_key: land
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ../src/quality.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: publish
+          depends_on:
+            - task_key: features
+            - task_key: quality
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ../src/publish.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: notify
+          depends_on:
+            - task_key: publish
+          run_if: ALL_DONE
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ../src/notify.py

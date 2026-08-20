@@ -1,0 +1,117 @@
+# m4demo — the end state of Module 4, ready to deploy.
+#
+# One job, five tasks, three targets. Every task runs on ONE EXISTING all-purpose
+# cluster, claimed by id through the cluster_id variable, because the training
+# workspace does not permit this credential to create clusters:
+#
+#   PERMISSION_DENIED: You are not authorized to create clusters.
+#
+# Set the id once per shell and no command needs a flag:
+#
+#   source ./cluster-env.sh          # looks up Training_Cluster by name
+#
+# The job_clusters form the slides teach is kept alongside, inert, as
+# databricks.yml.jobclusters and resources/ingest.job.yml.jobclusters. COMPUTE.md
+# explains the difference and how to switch if the permission is ever granted.
+#
+# There is no Python wheel, so uv is not required, and nothing is written to Unity
+# Catalog, so a writable catalog is not required either.
+#
+# Validated with Databricks CLI v1.12.1 for all three targets.
+
+bundle:
+  name: m4demo
+
+include:
+  - resources/*.yml
+
+variables:
+
+  catalog:
+    description: The catalog the tasks are told to write into
+    default: main
+
+  schema:
+    description: The schema the tasks are told to write into
+    default: default
+
+  # Pinned to the training workspace's one all-purpose cluster, Training_Cluster,
+  # so that the bundle runs with no setup step. Two things follow from that, and
+  # both are worth saying out loud when this file is on screen:
+  #
+  #  1. This id is workspace-specific, so this bundle cannot be promoted to a
+  #     second workspace as it stands. That is the same objection Part C raises
+  #     against the existing_cluster_id that bundle generate job leaves behind
+  #     (S17, S29). It is accepted here because the credential may not create
+  #     clusters, which is a permission that outranks the preference.
+  #  2. If Training_Cluster is deleted and recreated, this id goes stale and the
+  #     failure appears at run time. capture-run.sh checks the id still exists
+  #     before it deploys anything.
+  #
+  # Override it without editing the file, using either of the two sources that
+  # outrank a declaration's default (S48):
+  #   source ./cluster-env.sh Another_Cluster     # sets BUNDLE_VAR_cluster_id
+  #   databricks bundle deploy -t dev --var cluster_id=0815-...
+  cluster_id:
+    description: Id of the existing all-purpose cluster every task runs on
+    default: 0318-031919-b3fa4xtr
+
+targets:
+
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: main
+      schema: ${workspace.current_user.short_name}
+
+  staging:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: staging
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+
+    # The merge-by-key demonstration, moved from job_clusters to tasks. This
+    # names ONE task and ONE field; everything else about publish — its two
+    # depends_on entries, its cluster, its notebook, its parameters — is
+    # inherited from resources/ingest.job.yml.shared and is not repeated here.
+    #
+    # Check it with:
+    #   databricks bundle validate -t staging -o json \
+    #     | jq -r '.resources.jobs.ingest.tasks[] | "\(.task_key) retries=\(.max_retries // 0)"'
+    #
+    # And note the same trap as the job_clusters version: a mistyped task_key
+    # is APPENDED as a new task rather than reported. Count the tasks — five is
+    # correct, six means a typo.
+    resources:
+      jobs:
+        ingest:
+          tasks:
+            - task_key: publish
+              max_retries: 1
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: prod
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+    resources:
+      jobs:
+        ingest:
+          tasks:
+            - task_key: publish
+              max_retries: 3
+          trigger:
+            periodic:
+              interval: 1
+              unit: DAYS

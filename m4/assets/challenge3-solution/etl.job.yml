@@ -1,0 +1,85 @@
+# Challenge 3 — reference solution. Five tasks, three clusters, one fan-out and
+# one fan-in.
+resources:
+  jobs:
+    ingest:
+      name: sales_ingest
+      max_concurrent_runs: 1
+      timeout_seconds: 0
+
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            autoscale:
+              min_workers: 1
+              max_workers: 3
+
+        - job_cluster_key: features
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            num_workers: 2
+
+        - job_cluster_key: quality
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            num_workers: 2
+
+      tasks:
+        - task_key: land
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/land.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: features
+          depends_on:
+            - task_key: land
+          job_cluster_key: features
+          # Chosen for the retry: this is the only task that reads from an external
+          # source, so a transient network or rate-limit failure is plausible and a
+          # second attempt can survive it.
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          notebook_task:
+            notebook_path: ../src/features.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: quality
+          depends_on:
+            - task_key: land
+          job_cluster_key: quality
+          notebook_task:
+            notebook_path: ../src/quality.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: publish
+          depends_on:
+            - task_key: features
+            - task_key: quality
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/publish.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: notify
+          depends_on:
+            - task_key: publish
+          run_if: ALL_DONE
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/notify.py

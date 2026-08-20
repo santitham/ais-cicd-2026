@@ -1,0 +1,49 @@
+resources:
+  jobs:
+    sales_etl:
+      name: sales_etl
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            autoscale:
+              min_workers: 1
+              max_workers: 2
+
+      tasks:
+        - task_key: extract
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/extract.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: transform
+          depends_on:
+            - task_key: extract
+          job_cluster_key: mian
+          notebook_task:
+            notebook_path: ../src/transform.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: publish
+          depends_on:
+            - task_key: tranform
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/publish.py
+
+        - task_key: notify
+          depends_on:
+            - task_key: publish
+          run_if: ALL_DONE
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/notify.py

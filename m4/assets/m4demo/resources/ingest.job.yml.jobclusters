@@ -1,0 +1,98 @@
+# The job Module 4 builds up, in its final form.
+#
+# Five tasks, one fan-out and one fan-in, three job clusters. Slide references
+# are given so that a construct on a slide can be found here and the reverse.
+
+resources:
+  jobs:
+    ingest:                                     # the resource key (S7)
+      name: sales_ingest                        # what the workspace displays (S7)
+      max_concurrent_runs: 1                    # job-level keys (S15)
+      timeout_seconds: 0
+
+      # job_clusters is declared on the JOB, not on a task (S18). Each entry
+      # requires exactly job_cluster_key and new_cluster.
+      job_clusters:
+
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: 16.4.x-scala2.12     # the LTS runtime (S20)
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            autoscale:                          # a range, not a fixed count (S21)
+              min_workers: 1
+              max_workers: 3
+
+        # This one comes from a complex variable, so a target can replace the
+        # whole specification in one assignment (S49).
+        - job_cluster_key: features
+          new_cluster: ${var.features_cluster}
+
+        - job_cluster_key: quality
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            num_workers: 2                      # a fixed count (S21)
+
+      tasks:
+
+        # The root. No depends_on, so it starts when the run starts (S33).
+        - task_key: land
+          job_cluster_key: main                 # the claim on a cluster (S19)
+          notebook_task:
+            notebook_path: ../src/land.py       # relative to THIS file (S11)
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        # features and quality both depend on land and on nothing else, so they
+        # start together. They have separate clusters, which is what makes the
+        # parallelism real rather than declared (S22, S35).
+        - task_key: features
+          depends_on:
+            - task_key: land
+          job_cluster_key: features
+          # Retries re-run this task on the same cluster and do not re-run land
+          # (S38). features is the task that reads from outside, so a transient
+          # failure here is the one a second attempt can survive.
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          notebook_task:
+            notebook_path: ../src/features.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: quality
+          depends_on:
+            - task_key: land
+          job_cluster_key: quality
+          notebook_task:
+            notebook_path: ../src/quality.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        # The fan-in. One depends_on block with two entries, not two blocks.
+        - task_key: publish
+          depends_on:
+            - task_key: features
+            - task_key: quality
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/publish.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        # run_if: ALL_DONE is what makes this run whether or not the pipeline
+        # succeeded (S36). It is the reason notify still reports SUCCESS in the
+        # broken run of Challenge 5.
+        - task_key: notify
+          depends_on:
+            - task_key: publish
+          run_if: ALL_DONE
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/notify.py

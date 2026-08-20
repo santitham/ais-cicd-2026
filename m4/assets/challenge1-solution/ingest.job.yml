@@ -1,0 +1,26 @@
+# Challenge 1 — reference solution.
+resources:
+  jobs:
+    ingest:
+      name: sales_ingest
+      max_concurrent_runs: 1
+      timeout_seconds: 0
+
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_D3_v2
+            data_security_mode: DATA_SECURITY_MODE_AUTO
+            autoscale:
+              min_workers: 1
+              max_workers: 3
+
+      tasks:
+        - task_key: land
+          job_cluster_key: main
+          notebook_task:
+            notebook_path: ../src/land.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
