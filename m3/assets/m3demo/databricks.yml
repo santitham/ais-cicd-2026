@@ -1,0 +1,41 @@
+# A minimal Declarative Automation Bundle, ready to deploy.
+#
+# It declares one job with one notebook task. There is no Python wheel, so uv
+# is not required, and no pipeline, so a writable Unity Catalog catalog is not
+# required either. Both are the reason the default-python template needs more
+# setup than this.
+#
+# The workspace host is deliberately absent: the CLI takes it from your profile
+# or from DATABRICKS_HOST. Interpolation is not permitted on that field, so a
+# variable cannot be used for it.
+
+bundle:
+  name: m3demo
+
+include:
+  - resources/*.yml
+
+variables:
+  job_name:
+    description: Display name of the job, before the development-mode prefix
+    default: m3_hello
+
+  cluster_id:
+    description: >-
+      Id of an existing all-purpose cluster. Only used by the fallback resource
+      file resources/sample_job.job.yml.cluster; the default serverless form
+      ignores it.
+    default: ""
+
+targets:
+
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      job_name: m3_hello

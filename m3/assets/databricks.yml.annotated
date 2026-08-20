@@ -1,0 +1,132 @@
+# Module 3 — the generated databricks.yml, annotated
+#
+# This is the file `bundle init default-python` writes, with commentary added.
+# Produced by Databricks CLI v1.12.1, project_name "m3demo", default_catalog
+# "training". The host and the user name are yours; everything else is verbatim.
+#
+# Read it top to bottom. Each block is one of the five keys taught in Part B.
+
+# ---------------------------------------------------------------------------
+# 1. IDENTITY
+#
+# `name` appears in every path the CLI derives, so two bundles with the same
+# name deployed by the same user occupy the same root path and overwrite one
+# another. `uuid` is generated once, here, and identifies the bundle to the
+# workspace independently of the name, which is what allows the name to change.
+
+bundle:
+  name: m3demo
+  uuid: e9720c45-37a9-4b3a-af26-bf5a6cd159a3
+
+# ---------------------------------------------------------------------------
+# 2. COMPOSITION
+#
+# Every file matching the pattern is merged into one configuration before any
+# other processing. The template puts one resource in each file, which is why
+# this file declares no jobs itself.
+
+include:
+  - resources/*.yml
+
+# ---------------------------------------------------------------------------
+# 3. BUILD
+#
+# The one key Part B does not cover. It declares how a build product is
+# produced. `bundle deploy` runs this before uploading anything, and so does
+# `bundle plan`: with uv absent both fail with
+#
+#   Error: build failed python_artifact, error: exit status 127,
+#   output: /usr/bin/bash: line 1: uv: command not found
+#
+# The wheel it produces is named in the job's environment block, in
+# resources/sample_job.job.yml, as ../dist/*.whl.
+
+artifacts:
+  python_artifact:
+    type: whl
+    build: uv build --wheel
+
+# ---------------------------------------------------------------------------
+# 4. VARIABLES
+#
+# Declared here with a description and no default, so a value must come from
+# the selected target, from DATABRICKS_BUNDLE_VAR_<name>, or from --var. Both
+# are consumed by the pipeline resource and passed to the job as parameters.
+
+variables:
+  catalog:
+    description: The catalog to use
+  schema:
+    description: The schema to use
+
+# ---------------------------------------------------------------------------
+# 5. TARGETS
+#
+# Two named destinations. Everything above this line is common to both.
+
+targets:
+
+  # -- development ----------------------------------------------------------
+  #
+  # `mode: development` computes presets that appear in no file. Confirm them
+  # with `databricks bundle validate -o json | jq .presets`:
+  #
+  #   name_prefix              "[dev santitham_pro] "   prefixes every resource
+  #   tags                     {"dev": "santitham_pro"} tags jobs and pipelines
+  #   trigger_pause_status     "PAUSED"                 the daily trigger will not fire
+  #   jobs_max_concurrent_runs 4                        repeated runs do not queue
+  #   pipelines_development    true                     the pipeline runs in dev mode
+  #
+  # The deployment lock is also disabled, and --cluster-id may override the
+  # declared compute.
+  #
+  # `default: true` makes this the target used when -t is omitted. Nothing
+  # prevents a template from putting it on prod instead, which is the argument
+  # for naming the target explicitly in any command whose effect matters.
+
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://adb-1234567890123456.7.azuredatabricks.net
+    variables:
+      catalog: training
+
+      # ${workspace.current_user.short_name} is the authenticated user's SCIM
+      # userName reduced to an identifier: everything before the @, lowercased,
+      # with every non-alphanumeric character replaced by an underscore.
+      # santitham.pro@kmutt.ac.th becomes santitham_pro. This is what gives
+      # every participant in a shared workspace a private schema, and the same
+      # value produces the [dev ...] name prefix above.
+      schema: ${workspace.current_user.short_name}
+
+  # -- production -----------------------------------------------------------
+  #
+  # `mode: production` computes no presets. It enforces constraints instead:
+  # paths must not be user-specific, run_as and permissions must be stated,
+  # pipelines must not be marked development, --cluster-id is refused, and the
+  # current Git branch is checked against the target unless --force is passed.
+  #
+  # root_path is written out here rather than derived precisely because the
+  # derived form is user-specific and production mode rejects it.
+
+  prod:
+    mode: production
+    workspace:
+      host: https://adb-1234567890123456.7.azuredatabricks.net
+      root_path: /Workspace/Users/santitham.pro@kmutt.ac.th/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: training
+      schema: prod
+    permissions:
+      - user_name: santitham.pro@kmutt.ac.th
+        level: CAN_MANAGE
+
+# ---------------------------------------------------------------------------
+# What is NOT in this file
+#
+# The job, the pipeline, the tasks and the cluster configuration are all in
+# resources/. The workspace paths (root_path for dev, and file_path,
+# artifact_path, resource_path and state_path for both targets) are derived
+# rather than written. The presets are computed. None of the three appears in
+# any file, and all three appear in `bundle validate -o json`.

@@ -1,0 +1,90 @@
+Module 3 — expected output of `bundle init default-python`
+==========================================================
+
+Produced by Databricks CLI v1.12.1 on 16 August 2026, with project_name
+"m3demo" and default_catalog "training". Directories that appear only after a
+command has run (.databricks/, dist/, build/, .venv/) are omitted; everything
+below is written by `bundle init` itself.
+
+Substitute your own project name for m3demo throughout. The name also becomes
+the Python package name under src/ and the prefix of the pipeline resource, so
+it must consist of letters, digits and underscores only. A hyphen is rejected:
+
+    Error: failed to load config from file ...: invalid value for
+    project_name: "m3-jq". Name must consist of letters, numbers, and
+    underscores.
+
+m3demo/
+├── .gitignore
+├── .vscode/
+│   ├── __builtins__.pyi
+│   ├── extensions.json
+│   └── settings.json
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── databricks.yml
+├── fixtures/
+│   └── .gitkeep
+├── pyproject.toml
+├── resources/
+│   ├── m3demo_etl.pipeline.yml
+│   └── sample_job.job.yml
+├── src/
+│   ├── m3demo/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   └── taxis.py
+│   ├── m3demo_etl/
+│   │   ├── README.md
+│   │   ├── explorations/
+│   │   │   └── sample_exploration.ipynb
+│   │   └── transformations/
+│   │       ├── sample_trips_m3demo.py
+│   │       └── sample_zones_m3demo.py
+│   └── sample_notebook.ipynb
+└── tests/
+    ├── conftest.py
+    └── sample_taxis_test.py
+
+Twelve files and seven directories.
+
+What each is for
+----------------
+
+databricks.yml          The bundle declaration. Read it with
+                        assets/databricks.yml.annotated beside you.
+
+resources/
+  sample_job.job.yml    The job: three tasks, a daily trigger, and two job
+                        parameters carrying the bundle variables.
+  m3demo_etl.pipeline.yml
+                        A serverless Lakeflow declarative pipeline, referenced
+                        by the third task of the job.
+
+src/
+  sample_notebook.ipynb Executed by the first task.
+  m3demo/               The Python package. main.py is the entry point the
+                        second task calls after the wheel is built.
+  m3demo_etl/           Pipeline sources. transformations/ holds the files the
+                        pipeline picks up through its libraries glob;
+                        explorations/ is excluded by .gitignore.
+
+pyproject.toml          Package metadata, the "main" entry point, and the dev
+                        dependency group. The artifacts block in databricks.yml
+                        builds this with `uv build --wheel`.
+
+tests/                  pytest tests over src/, used in Module 5. Not deployed.
+fixtures/               Sample data for those tests. Not deployed.
+.vscode/                Editor settings. No effect on deployment.
+AGENTS.md, CLAUDE.md    Instructions for coding agents. No effect on deployment.
+.gitignore              Excludes .databricks/, build/, dist/, .venv/, scratch/
+                        and **/explorations/**.
+
+Differences worth investigating
+-------------------------------
+
+Older CLI versions generate a different project entirely: a notebooks/
+directory, a job keyed <project>_job rather than sample_job, no pipeline
+resource, and no pyproject.toml. If your tree looks like that, check
+`databricks --version`; this course requires v1.3.0 or later.

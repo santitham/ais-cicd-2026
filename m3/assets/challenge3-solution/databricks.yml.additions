@@ -1,0 +1,39 @@
+# Challenge 3 — the two additions to databricks.yml
+#
+# Nothing else in the generated file changes. Both hunks were applied and
+# validated with CLI v1.12.1; the result is `Validation OK!` and a resolved job
+# name of `[dev santitham_pro] daily_report`.
+
+# 1. Declare the variable, alongside the two the template already declares.
+
+ variables:
+   catalog:
+     description: The catalog to use
+   schema:
+     description: The schema to use
++  report_job_name:
++    description: Name of the reporting job
+
+# 2. Assign it in the dev target, alongside the two assignments already there.
+
+ targets:
+   dev:
+     mode: development
+     default: true
+     workspace:
+       host: https://adb-1234567890123456.7.azuredatabricks.net
+     variables:
+       catalog: training
+       schema: ${workspace.current_user.short_name}
++      report_job_name: daily_report
+
+# The prod target needs the same assignment only if the bundle is validated or
+# deployed with -t prod. A variable declared with no default and no assignment
+# for the selected target is prompted for interactively, which is a confusing
+# result inside an automated pipeline, so assign it in both targets:
+#
+#   prod:
+#     variables:
+#       catalog: training
+#       schema: prod
+#       report_job_name: daily_report

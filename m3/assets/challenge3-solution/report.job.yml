@@ -1,0 +1,11 @@
+# Challenge 3 solution: a second job, written by hand.
+
+resources:
+  jobs:
+    report_job:
+      name: ${var.report_job_name}
+
+      tasks:
+        - task_key: report
+          notebook_task:
+            notebook_path: ../src/report_notebook.py

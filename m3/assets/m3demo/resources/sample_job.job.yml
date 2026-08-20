@@ -1,0 +1,15 @@
+# One job, one task, no compute declared.
+#
+# A notebook task with no job_cluster_key and no existing_cluster_id runs on
+# serverless compute. If serverless is not enabled in your workspace, rename
+# this file out of the way and rename sample_job.job.yml.cluster in its place.
+
+resources:
+  jobs:
+    sample_job:
+      name: ${var.job_name}
+
+      tasks:
+        - task_key: hello
+          notebook_task:
+            notebook_path: ../src/sample_notebook.py

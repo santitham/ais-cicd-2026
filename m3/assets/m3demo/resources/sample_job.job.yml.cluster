@@ -1,0 +1,19 @@
+# Fallback for a workspace without serverless compute.
+#
+#   mv resources/sample_job.job.yml         resources/sample_job.job.yml.serverless
+#   mv resources/sample_job.job.yml.cluster resources/sample_job.job.yml
+#   databricks bundle deploy -t dev --var cluster_id=<your cluster id>
+#
+# Find a cluster id with:  databricks clusters list -o json | jq -r '.[] | "\(.cluster_id)  \(.cluster_name)"'
+# Note the bare array: index it with .[], not .clusters[].
+
+resources:
+  jobs:
+    sample_job:
+      name: ${var.job_name}
+
+      tasks:
+        - task_key: hello
+          existing_cluster_id: ${var.cluster_id}
+          notebook_task:
+            notebook_path: ../src/sample_notebook.py
