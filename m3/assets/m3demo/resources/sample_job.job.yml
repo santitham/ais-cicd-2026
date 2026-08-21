@@ -13,3 +13,4 @@ resources:
         - task_key: hello
           notebook_task:
             notebook_path: ../src/sample_notebook.py
+          existing_cluster_id: 0318-031919-b3fa4xtr
